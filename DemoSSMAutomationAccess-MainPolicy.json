@@ -1,0 +1,51 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ssm:ListDocuments",
+                "ssm:ListDocumentVersions",
+                "ssm:DescribeDocument",
+                "ssm:GetDocument",
+                "ssm:DescribeAutomationExecutions",
+                "ssm:GetAutomationExecution",
+                "ssm:DescribeAutomationStepExecutions"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ecs:DescribeClusters",
+                "ecs:DescribeServices",
+                "ecs:DescribeTaskDefinition",
+                "ecs:DescribeTasks",
+                "ecs:ListClusters",
+                "ecs:ListServices",
+                "ecs:ListTaskDefinitions",
+                "ecs:ListTasks"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ssm:StartAutomationExecution"
+            ],
+            "Resource": "arn:aws:ssm:*:*:automation-definition/RefreshECSService:*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "iam:PassRole"
+            ],
+            "Resource": "arn:aws:iam::*:role/SsmAutomationForceEcsDeploymentRole",
+            "Condition": {
+                "StringEquals": {
+                    "iam:PassedToService": "ssm.amazonaws.com"
+                }
+            }
+        }
+    ]
+}
