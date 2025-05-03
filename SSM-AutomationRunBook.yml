@@ -18,7 +18,7 @@ description: |
   # Note
 
   WebServer Service deployment is not allowed in the following time slots because of scheduled task running at that time:
-  - 12:00 AM to 3 PM
+  - 12:00 NN to 3 PM
   - 7 PM to 8 PM
 schemaVersion: '0.3'
 assumeRole: arn:aws:iam::{{global:ACCOUNT_ID}}:role/SsmAutomationForceEcsDeploymentRole
@@ -30,7 +30,7 @@ parameters:
       - TaskWorker
       - PdfService
 mainSteps:
-  - description: Redeployment of WebServer service is not allowed from 12:00 AM to 3 PM and 7 PM to 8 PM
+  - description: Redeployment of WebServer service is not allowed from 12:00 NN to 3 PM and 7 PM to 8 PM
     name: CheckExecutionTime
     action: aws:executeScript
     nextStep: AbortOrProceed
@@ -149,4 +149,4 @@ mainSteps:
       Handler: invalid_time_abort
       Script: |-
         def invalid_time_abort(events, context):
-          raise ValueError('Redeployment of WebServer service is not allowed from 12:00 AM to 3 PM and 7 PM to 8 PM. Deployment aborted.')
+          raise ValueError('Redeployment of WebServer service is not allowed from 12:00 NN to 3 PM and 7 PM to 8 PM. Deployment aborted.')
