@@ -1,0 +1,152 @@
+description: |
+  # Overview
+
+  This Automation Document serves to do a force deployment of ECS service of your choice (WebServer / TaskWorker / PdfService)
+
+  **NOTE: This document WILL NOT trigger any source code release deployment. This document simply replaces running ECS docker container tasks with new tasks**
+
+  ---
+
+  # Steps
+
+  1. Choose service to deploy in EcsServiceName input parameter (WebServer / TaskWorker / PdfService)
+
+  2. Execute
+
+  ---
+
+  # Note
+
+  WebServer Service deployment is not allowed in the following time slots because of scheduled task running at that time:
+  - 12:00 AM to 3 PM
+  - 7 PM to 8 PM
+schemaVersion: '0.3'
+assumeRole: arn:aws:iam::{{global:ACCOUNT_ID}}:role/SsmAutomationForceEcsDeploymentRole
+parameters:
+  EcsServiceName:
+    type: String
+    allowedValues:
+      - WebServer
+      - TaskWorker
+      - PdfService
+mainSteps:
+  - description: Redeployment of WebServer service is not allowed from 12:00 AM to 3 PM and 7 PM to 8 PM
+    name: CheckExecutionTime
+    action: aws:executeScript
+    nextStep: AbortOrProceed
+    isEnd: false
+    inputs:
+      Runtime: python3.11
+      Handler: check_execution_time
+      Script: |-
+        from datetime import datetime, time, timezone, timedelta
+        def check_execution_time(events, context):
+            now = (datetime.now(timezone.utc) + timedelta(hours=8)).time()
+            is_deployment_allowed = (
+                (now < time(12, 0) or now > time(15, 0)) and # 12:00 AM to 3 PM
+                (now < time(19, 0) or now > time(20, 0))  # 7 PM to 8 PM
+                if events['EcsServiceName'] == 'WebServer'
+                else True
+            )
+            return {'IsDeploymentAllowed': is_deployment_allowed}
+      InputPayload:
+        EcsServiceName: '{{ EcsServiceName }}'
+    outputs:
+      - Name: IsDeploymentAllowed
+        Selector: $.Payload.IsDeploymentAllowed
+        Type: Boolean
+  - name: AbortOrProceed
+    action: aws:branch
+    inputs:
+      Choices:
+        - NextStep: GetEcsClusterAndServiceArn
+          Variable: '{{ CheckExecutionTime.IsDeploymentAllowed }}'
+          BooleanEquals: true
+        - NextStep: InvalidTimeAbort
+          Variable: '{{ CheckExecutionTime.IsDeploymentAllowed }}'
+          BooleanEquals: false
+      Default: GetEcsClusterAndServiceArn
+  - name: GetEcsClusterAndServiceArn
+    action: aws:executeAwsApi
+    nextStep: FindServiceArn
+    isEnd: false
+    inputs:
+      Service: ecs
+      Api: ListClusters
+    outputs:
+      - Name: clusterArns
+        Selector: $.clusterArns
+        Type: StringList
+  - name: FindServiceArn
+    action: aws:executeScript
+    nextStep: ForceServiceDeployment
+    isEnd: false
+    inputs:
+      Runtime: python3.11
+      Handler: get_cluster_and_service_arn
+      Script: |-
+        import boto3
+
+        def get_cluster_and_service_arn(events, context):
+            client = boto3.client('ecs')
+            clusterArns = events['clusterArns']
+            target_service = events['EcsServiceName']
+
+            service_mapping = {
+                'WebServer': None,
+                'TaskWorker': None,
+                'PdfService': None
+            }
+
+            service_identifiers = {
+                'WebServer': 'WebServerService',
+                'TaskWorker': 'TaskWorkerService',
+                'PdfService': 'PdfService'
+            }
+
+            for clusterArn in clusterArns:
+                serviceArns = client.list_services(cluster=clusterArn)['serviceArns']
+                for serviceArn in serviceArns:
+                    for service_name, service_identifier in service_identifiers.items():
+                        if service_identifier in serviceArn:
+                            service_mapping[service_name] = {
+                                'clusterArn': clusterArn,
+                                'serviceArn': serviceArn
+                            }
+
+            if service_mapping[target_service] is None:
+                raise ValueError(f"Service {target_service} not found in any cluster")
+
+            return service_mapping[target_service]
+      InputPayload:
+        clusterArns: '{{ GetEcsClusterAndServiceArn.clusterArns }}'
+        EcsServiceName: '{{ EcsServiceName }}'
+    outputs:
+      - Name: clusterArn
+        Selector: $.Payload.clusterArn
+        Type: String
+      - Name: serviceArn
+        Selector: $.Payload.serviceArn
+        Type: String
+  - name: ForceServiceDeployment
+    action: aws:executeAwsApi
+    isEnd: true
+    inputs:
+      Service: ecs
+      Api: UpdateService
+      cluster: '{{ FindServiceArn.clusterArn }}'
+      service: '{{ FindServiceArn.serviceArn }}'
+      forceNewDeployment: true
+    outputs:
+      - Name: status
+        Selector: $.service.status
+        Type: String
+  - name: InvalidTimeAbort
+    action: aws:executeScript
+    isEnd: true
+    inputs:
+      Runtime: python3.11
+      Handler: invalid_time_abort
+      Script: |-
+        def invalid_time_abort(events, context):
+          raise ValueError('Redeployment of WebServer service is not allowed from 12:00 AM to 3 PM and 7 PM to 8 PM. Deployment aborted.')
